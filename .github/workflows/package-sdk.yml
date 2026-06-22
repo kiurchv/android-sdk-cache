@@ -1,0 +1,76 @@
+name: Package Android SDK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-sdk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check available SDK
+        run: |
+          echo "SDK root: $ANDROID_SDK_ROOT"
+          ls $ANDROID_SDK_ROOT/
+          echo "--- build-tools ---"
+          ls $ANDROID_SDK_ROOT/build-tools/
+          echo "--- platforms ---"
+          ls $ANDROID_SDK_ROOT/platforms/
+
+      - name: Package minimal SDK
+        run: |
+          mkdir -p /tmp/sdk-out
+
+          # build-tools — latest available
+          BT=$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
+          echo "Packaging build-tools: $BT"
+          tar -czf /tmp/sdk-out/build-tools-${BT}.tar.gz \
+            -C $ANDROID_SDK_ROOT/build-tools $BT
+
+          # platforms/android-35
+          echo "Packaging platform android-35"
+          tar -czf /tmp/sdk-out/platform-android-35.tar.gz \
+            -C $ANDROID_SDK_ROOT/platforms android-35
+
+          # Gradle wrapper jar 8.14.5 (from Gradle cache on runner)
+          GRADLE_JAR=$(find ~/.gradle/wrapper/dists -name "gradle-wrapper.jar" 2>/dev/null | head -1)
+          if [ -n "$GRADLE_JAR" ]; then
+            cp "$GRADLE_JAR" /tmp/sdk-out/gradle-wrapper.jar
+            echo "Found gradle wrapper jar"
+          fi
+
+          echo "=== Output files ==="
+          ls -lh /tmp/sdk-out/
+
+      - name: Delete old release if exists
+        run: |
+          gh release delete android-sdk-cache --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release with SDK assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-sdk-cache
+          name: Android SDK — build-tools + platform-35
+          body: |
+            Minimal Android SDK components for local builds without full Android Studio.
+
+            ## Contents
+            - `build-tools-*.tar.gz` — aapt2, d8, zipalign, apksigner
+            - `platform-android-35.tar.gz` — android.jar for compileSdk=35
+
+            ## Usage
+            ```bash
+            export ANDROID_SDK_ROOT=~/android-sdk
+            mkdir -p $ANDROID_SDK_ROOT/build-tools
+            mkdir -p $ANDROID_SDK_ROOT/platforms
+
+            tar -xzf build-tools-*.tar.gz -C $ANDROID_SDK_ROOT/build-tools/
+            tar -xzf platform-android-35.tar.gz -C $ANDROID_SDK_ROOT/platforms/
+            ```
+          files: /tmp/sdk-out/*
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
