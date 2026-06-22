@@ -29,25 +29,44 @@ jobs:
           git clone https://github.com/kiurchv/Cull.git /tmp/Cull
           cd /tmp/Cull
           gradle wrapper --gradle-version=8.14.5
-          ./gradlew assembleDebug --no-daemon 2>&1 | tail -20 || true
-          echo "Cache size: $(du -sh ~/.gradle/caches/modules-2/ | cut -f1)"
+          # Build — ignore exit code, we want the cache even if build fails
+          ./gradlew assembleDebug --no-daemon 2>&1 | tail -30 || true
+          echo ""
+          echo "=== Gradle cache contents ==="
+          du -sh ~/.gradle/caches/modules-2/ 2>/dev/null || echo "modules-2 not found"
+          ls ~/.gradle/caches/modules-2/ 2>/dev/null || true
 
       - name: Package and split
         run: |
-          git rm -f deps-cache.tar.gz.part* maven-cache.tar.gz.part* 2>/dev/null || true
-          tar -czf /tmp/deps.tar.gz \
-            -C ~/.gradle/caches \
-            modules-2/files-2.1 \
-            modules-2/metadata-2.106
+          # Find actual metadata directory name (varies by Gradle version)
+          METADATA_DIR=$(ls ~/.gradle/caches/modules-2/ | grep metadata | head -1)
+          echo "metadata dir: $METADATA_DIR"
+
+          if [ ! -d ~/.gradle/caches/modules-2/files-2.1 ]; then
+            echo "ERROR: files-2.1 not found - build may not have downloaded deps"
+            ls ~/.gradle/caches/ || true
+            ls ~/.gradle/caches/modules-2/ || true
+            exit 1
+          fi
+
+          # Package everything in modules-2
+          tar -czf /tmp/deps.tar.gz -C ~/.gradle/caches modules-2/
           echo "Archive: $(du -sh /tmp/deps.tar.gz | cut -f1)"
+
+          # Split into 90MB chunks
           split -b 90m /tmp/deps.tar.gz deps-cache.tar.gz.part
+          echo "Parts created:"
           ls -lh deps-cache.tar.gz.part*
           echo "PARTS=$(ls deps-cache.tar.gz.part* | wc -l)" >> $GITHUB_ENV
 
-      - name: Commit
+      - name: Remove old cache parts and commit new
         run: |
+          # Remove ALL old cache parts (both naming conventions)
+          git rm -f maven-cache.tar.gz.part* deps-cache.tar.gz.part* 2>/dev/null || true
+
           git config user.email "sdk-bot@kiurchv.xyz"
           git config user.name "SDK Bot"
+
           git add deps-cache.tar.gz.part*
           git commit -m "sdk: deps cache from assembleDebug (${{ env.PARTS }} parts)"
           git push origin main
