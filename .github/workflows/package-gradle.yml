@@ -13,41 +13,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Gradle 8.14.5
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.14.5"
-
-      - name: Package Gradle distribution
+      - name: Download Gradle 8.14.5
         run: |
-          # Find where Gradle was installed
-          GRADLE_HOME=$(gradle --version 2>/dev/null | grep "Gradle home" || true)
-          echo "Looking for Gradle dist..."
-          find ~/.gradle/wrapper/dists -name "*.zip" 2>/dev/null | head -5
-          find ~/.gradle/wrapper/dists -type d -name "gradle-8*" 2>/dev/null | head -5
-          
-          # Get the actual gradle 8.14.5 binary dir
-          GRADLE_DIR=$(find ~/.gradle/wrapper/dists -type d -name "gradle-8.14.5-bin" 2>/dev/null | head -1)
-          if [ -z "$GRADLE_DIR" ]; then
-            # Try downloading it directly since the runner can access services.gradle.org
-            wget -q https://services.gradle.org/distributions/gradle-8.14.5-bin.zip -O /tmp/gradle-8.14.5-bin.zip
-            ls -lh /tmp/gradle-8.14.5-bin.zip
-            cp /tmp/gradle-8.14.5-bin.zip gradle-8.14.5-bin.zip
-          else
-            cd "$GRADLE_DIR"
-            ls
-            cd -
-            zip -r gradle-8.14.5-bin.zip "$GRADLE_DIR" 2>/dev/null || \
-            cp $(find ~/.gradle/wrapper/dists -name "gradle-8.14.5-bin.zip" 2>/dev/null | head -1) . || \
-            wget -q https://services.gradle.org/distributions/gradle-8.14.5-bin.zip
-          fi
-          
-          ls -lh gradle-8.14.5-bin.zip
+          wget -q https://services.gradle.org/distributions/gradle-8.14.5-bin.zip \
+            -O /tmp/gradle-8.14.5-bin.zip
+          ls -lh /tmp/gradle-8.14.5-bin.zip
+
+      - name: Split into chunks < 95MB
+        run: |
+          split -b 95m /tmp/gradle-8.14.5-bin.zip gradle-8.14.5-bin.zip.part
+          ls -lh gradle-8.14.5-bin.zip.part*
 
       - name: Commit to repo
         run: |
           git config user.email "sdk-bot@kiurchv.xyz"
           git config user.name "SDK Bot"
-          git add gradle-8.14.5-bin.zip
-          git commit -m "sdk: add gradle-8.14.5-bin" || echo "Nothing to commit"
+          git add gradle-8.14.5-bin.zip.part*
+          git commit -m "sdk: add gradle-8.14.5-bin split into 95MB chunks" || echo "Nothing to commit"
           git push origin main
