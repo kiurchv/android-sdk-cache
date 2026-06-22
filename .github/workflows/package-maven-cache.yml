@@ -1,0 +1,64 @@
+name: Package Maven Cache
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-maven:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.5"
+
+      - name: Clone Cull and resolve dependencies
+        run: |
+          git clone https://github.com/kiurchv/Cull.git /tmp/Cull
+          cd /tmp/Cull
+          gradle wrapper --gradle-version=8.14.5
+          
+          # Download all dependencies without building
+          ./gradlew dependencies --no-daemon 2>&1 | tail -5 || true
+          ./gradlew :app:resolveDependencies --no-daemon 2>&1 | tail -5 || true
+          # Try actual compile to pull all deps
+          ./gradlew :app:kspDebugKotlin --no-daemon 2>&1 | tail -10 || true
+          
+          echo "Gradle cache size:"
+          du -sh ~/.gradle/caches/
+
+      - name: Package Maven cache (split into 90MB chunks)
+        run: |
+          # Focus on the most important caches
+          tar -czf /tmp/gradle-caches.tar.gz \
+            -C ~/.gradle \
+            caches/modules-2/files-2.1 \
+            caches/modules-2/metadata-2.106 2>/dev/null || \
+          tar -czf /tmp/gradle-caches.tar.gz -C ~/.gradle caches/
+
+          echo "Cache archive size:"
+          ls -lh /tmp/gradle-caches.tar.gz
+          
+          # Split into 90MB chunks
+          split -b 90m /tmp/gradle-caches.tar.gz maven-cache.tar.gz.part
+          ls -lh maven-cache.tar.gz.part*
+          echo "PART_COUNT=$(ls maven-cache.tar.gz.part* | wc -l)" >> $GITHUB_ENV
+
+      - name: Commit to repo
+        run: |
+          git config user.email "sdk-bot@kiurchv.xyz"
+          git config user.name "SDK Bot"
+          git add maven-cache.tar.gz.part*
+          git commit -m "sdk: add maven dependency cache (${{ env.PART_COUNT }} parts)"
+          git push origin main
