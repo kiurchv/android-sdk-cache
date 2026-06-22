@@ -42,6 +42,16 @@ mkdir -p "$ANDROID_SDK_DIR/licenses"
 printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\n84831b9409646a918e30573bab4c9c91346d8abd" \
   > "$ANDROID_SDK_DIR/licenses/android-sdk-license"
 
+# Cull requires build-tools 35.0.0 — patch 37.0.0 metadata
+if [ -d "$ANDROID_SDK_DIR/build-tools/37.0.0" ] && [ ! -d "$ANDROID_SDK_DIR/build-tools/35.0.0" ]; then
+  info "Patching build-tools 37.0.0 \u2192 35.0.0"
+  cp -r "$ANDROID_SDK_DIR/build-tools/37.0.0" "$ANDROID_SDK_DIR/build-tools/35.0.0"
+  sed -i "s/Pkg.Revision=.*/Pkg.Revision=35.0.0/" "$ANDROID_SDK_DIR/build-tools/35.0.0/source.properties"
+  sed -i "s|<major>37</major>|<major>35</major>|g" "$ANDROID_SDK_DIR/build-tools/35.0.0/package.xml"
+  sed -i 's|path="build-tools;37.0.0"|path="build-tools;35.0.0"|g' "$ANDROID_SDK_DIR/build-tools/35.0.0/package.xml"
+  sed -i "s|Build-Tools 37|Build-Tools 35|g" "$ANDROID_SDK_DIR/build-tools/35.0.0/package.xml"
+fi
+
 section "Gradle $GRADLE_VERSION"
 KNOWN_HASH="91wvqqe4qmsefb2bitamjj9bp"
 GRADLE_INSTALL="$GRADLE_HOME/wrapper/dists/gradle-${GRADLE_VERSION}-bin/$KNOWN_HASH"
